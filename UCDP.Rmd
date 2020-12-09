@@ -1,0 +1,274 @@
+---
+title: "UCDP"
+author: "Alexandra Norris"
+date: "12/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(writexl)
+library(lubridate)
+library(data.table)
+library(purrr)
+library(wbstats)
+
+```
+
+```{r UCDP start}
+
+# load in UCDP dataset
+
+uc <- read_xls("UCDP_GED_201_monthly_admin1.xls") %>%
+  filter(country == "Afghanistan") %>%
+  filter(date_month >= as.Date("2011-08-01")) %>%
+  filter(date_month <= as.Date("2015-09-01")) %>%
+# format it in year month form
+  mutate(date_month = format(date_month, format = "%Y-%m")) 
+
+# build a function to remove the word "province" from province names so the
+# datasets can be joined - make sure to note the space in front of the word
+
+stopwords = c(" province")
+
+uc$adm_1 <- gsub(paste0(stopwords,collapse = "|"),"", uc$adm_1)
+
+# filter data to only show data from Afghanistan and dates that we are
+# interested in,  remane adm_1 so that it can be joined with gov datset, only
+# select for the variables that I want
+
+ucdp <- uc %>%
+  mutate(province = adm_1) %>%
+  select(province, date_month, region_month, deaths_total_mo, deaths_statebased_mo, deaths_civilians_mo)
+
+
+# create data for the national deaths (all of the places where no adm_1 is
+# listed).  Change the death columns to say natl so that they can be tacked on
+# seperately to the ucdp data
+
+natl_data <- uc %>%
+  filter(is.na(adm_1)) %>%
+  mutate(natl_deaths_total_mo = deaths_total_mo) %>%
+  mutate(natl_deaths_statebased_mo = deaths_statebased_mo) %>%
+  mutate(natl_deaths_civilians_mo = deaths_civilians_mo) %>%
+  # get rid of unnecessary columns
+  select(year, date_month, natl_deaths_total_mo, natl_deaths_statebased_mo, natl_deaths_civilians_mo)
+
+# read in population data from the world bank for later use
+
+pop <- wb(indicator = "SP.POP.TOTL", startdate = 2001, enddate = 2019) %>%
+  filter(country == "Afghanistan") %>%
+  rename(natl_pop = value,
+         year = date) %>%
+  select(year, natl_pop) %>%
+  mutate(year = as.numeric(year))
+
+# merge population data with national death data
+
+natl_data <- merge(pop, natl_data, by.x = "year", by.y = "year")
+
+# merge the national level data with the other data to be used later down the
+# line
+
+ucdp <- merge(ucdp, natl_data, by.x = "date_month", by.y = "date_month", all = TRUE)
+  
+```
+
+
+```{r breaking down gov data set into months}
+
+# load in governors dataset
+
+gov <- read_xlsx("updated_governors.xlsx")
+
+# recreate the gov dataset but with expanded months so that I can later join
+# this data with the UCDP data.  I selected all of the applicable gov variables,
+# omitting the term related ones.
+
+require(data.table)
+
+gov <- setDT(gov)[, list(province = province,
+                  governor = governor, 
+                  term_popul= term_popul,
+                  # deaths_total=.$deaths_total,
+                  # death_rate=.$death_rate,
+                  gov_ethnicity= gov_ethnicity,
+                  prov_maj= prov_maj,
+                  prov_birth= prov_birth,
+                  gov_from_prov= gov_from_prov,
+                  gov_killed= gov_killed,
+                  gov_killed_post_term= gov_killed_post_term,
+                  gov_accident_death= gov_accident_death,
+                  government= government,
+                  appointer= appointer,
+                  abroad= abroad,
+                  br_prov_n= br_prov_n,
+                  br_prov_m= br_prov_m,
+                  br_prov_b= br_prov_b,
+                  br_n= br_n,
+                  br_m= br_m,
+                  br_b= br_b,
+                  prov_capital= prov_capital,
+                  dist_to_natl_capital= dist_to_natl_capital,
+                  driv_time_natl_cap= driv_time_natl_cap,
+                  border_province= border_province,
+                  border_country= border_country,
+                  opium_hectars= opium_hectars,
+                  pakistan_border= pakistan_border,
+                  domestic_ties_to_region= domestic_ties_to_region,
+                  ties_to_northern_alliance= ties_to_northern_alliance,
+                  ties_to_karzai= ties_to_karzai,
+                  served_more_than_once= served_more_than_once,
+                  commands_a_militia= commands_a_militia,
+                  ethnicity_matchup= ethnicity_matchup,
+                  if_so_how_many_years= if_so_how_many_years,
+                  education_collapsed= education_collapsed,
+                  distdriv= distdriv,
+                  if_so_where_did_they_live= if_so_where_did_they_live,
+                  yrs_out= yrs_out,
+                  educated_outside_afghanistan= educated_outside_afghanistan,
+                  outside_region= outside_region,
+                  p_dist= p_dist,
+                  ties_to_mohammad_daoud_khan= ties_to_mohammad_daoud_khan,
+                  ties_to_pdpa= ties_to_pdpa,
+                  ties_to_mojadeddi= ties_to_mojadeddi,
+                  ties_to_rabbani= ties_to_rabbani,
+                  controversy_surrounding_governor= controversy_surrounding_governor,
+                  spend_any_years_outside_the_coun= spend_any_years_outside_the_coun,
+                  highest_educational_achievement= highest_educational_achievement,
+                  pashtun_reg_prop= pashtun_reg_prop,
+                  tajik_reg_prop= tajik_reg_prop,
+                  uzbek_reg_prop= uzbek_reg_prop,
+                  hazara_reg_prop= hazara_reg_prop,
+                  other_reg_prop= other_reg_prop,
+                  turkmen_reg_prop= turkmen_reg_prop,
+                  baloch_reg_prop= baloch_reg_prop,
+                  nuristani_reg_prop= nuristani_reg_prop,
+                  pashtun_natl_prop= pashtun_natl_prop,
+                  tajik_natl_prop= tajik_natl_prop,
+                  hazara_natl_prop= hazara_natl_prop,
+                  uzbek_natl_prop= uzbek_natl_prop,
+                  imak_natl_prop= aimak_natl_prop,
+                  turkmen_natl_prop= turkmen_natl_prop,
+                  baloch_natl_prop= baloch_natl_prop,
+                  other_natl_prop= other_natl_prop,
+                  pashtun_reg_natl_ratio= pashtun_reg_natl_ratio,
+                  tajik_reg_natl_ratio= tajik_reg_natl_ratio,
+                  uzbek_reg_natl_ratio= uzbek_reg_natl_ratio,
+                  hazara_reg_natl_ratio= hazara_reg_natl_ratio,
+                  turkmen_reg_natl_ratio= turkmen_reg_natl_ratio,
+                  baloch_reg_natl_ratio= baloch_reg_natl_ratio,
+                  other_reg_natl_ratio= other_reg_natl_ratio,
+                  gov_eth_reg_prop= gov_eth_reg_prop,
+                  gov_eth_nat_prop= gov_eth_nat_prop,
+                  gov_eth_reg_natl_ratio= gov_eth_reg_natl_ratio,
+                  natl_hhi= natl_hhi,
+                  reg_hhi= reg_hhi,
+                  date_month = seq(term_start, term_end, by = "month")), by = 1:nrow(gov)]
+
+```
+
+```{r filter gov}
+
+# filter to only have necessary date range
+# change date to only have month and year
+# change province spellings to match UCDP dataset
+
+gov <- gov %>%
+  filter(date_month >= as.Date("2011-08-01")) %>%
+  filter(date_month <= as.Date("2015-09-01")) %>%
+  mutate(date_month = format(date_month, format = "%Y-%m")) %>%
+  mutate(province = ifelse(as.character(province) == "Daikundi", "Daykundi", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Helmand", "Hilmand", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Herat", "Hirat", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Panjshir", "Panjsher", as.character(province)))
+  
+```  
+  
+```{r terrain data}
+
+# read in land cover data and filter for Afghanistan, change ADMIN_NAME to
+# province so I can join it to the other data
+
+land_cover <- read_csv("Admin2006_LandCover_300M.csv") %>%
+  filter(CNTRY_NAME == "Afghanistan") %>%
+  rename(province = ADMIN_NAME)
+
+# do the above but for the ruggedness data
+
+rugged <- read_csv("Admin2006_Ruggedness_1KM.csv") %>%
+  filter(CNTRY_NAME == "Afghanistan") %>%
+  rename(province = ADMIN_NAME)
+
+# join the two terrain datasets.  By leaving the "by =" argument empty it joins
+# by all common variables. Change province name spellings so we can merge with
+# the other data
+
+terrain <- merge(rugged, land_cover, all.x = TRUE, all.y = FALSE) %>%
+  mutate(province = ifelse(as.character(province) == "Kabol", "Kabul", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Helmand", "Hilmand", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Herat", "Hirat", as.character(province))) %>%
+  mutate(province = ifelse(as.character(province) == "Panjshir", "Panjsher", as.character(province))) %>%
+  # I deselected the variables that weren't all the same so that I could have a
+  # single row for province. I didn't think they were important but this can be
+  # changedif they matter.
+  select(!c(GLOBCOVER_, Count, Value)) %>%
+  distinct()
+  
+```
+
+
+```{r combine}
+
+# use merge to join ucdp and gov datasets
+
+# only question is do you want all data from both ucdp and gov.  There is some
+# incpmplete information so there are a number of NA values.  I checked the
+# original UCDP dataset and the NA values correspond so it isn't due to a coding
+# error.
+# merge the above data with the terrain data, order had to be terrain, data or else the number of observations increases about 6x
+
+data <- merge(ucdp, gov, by.x = c("province", "date_month"), 
+             by.y = c("province", "date_month"), all = TRUE) %>%
+        merge(terrain, data, by.x = "province", by.y = "province", all = TRUE)
+
+```
+
+```{r new variables}
+
+# monthly provincial death rate per 100,000 inhabitants,the monthly national
+# death rate per 100,000 inhabitants, and the ratio between the two for all
+# three UCDP death variables (total, civilian, and state).
+
+final <- data %>%
+  mutate(total_natl_death_per_100k = natl_deaths_total_mo/natl_pop *100000) %>%
+  mutate(total_reg_death_per_100k = (deaths_total_mo/term_popul *100000)) %>%
+  mutate(total_death_reg_natl_ratio = total_reg_death_per_100k/total_natl_death_per_100k) %>%
+  mutate(state_natl_death_per_100k = natl_deaths_statebased_mo/natl_pop *100000) %>%
+  mutate(state_reg_death_per_100k = (deaths_statebased_mo/term_popul *100000)) %>%
+  mutate(state_death_reg_natl_ratio = state_reg_death_per_100k/state_natl_death_per_100k) %>%
+  mutate(civil_natl_death_per_100k = natl_deaths_civilians_mo/natl_pop *100000) %>%
+  mutate(civil_reg_death_per_100k = (deaths_civilians_mo/term_popul *100000)) %>%
+  mutate(civil_death_statesbased_reg_natl_ratio = civil_reg_death_per_100k/civil_natl_death_per_100k)
+
+```
+
+```{r move to excel}
+
+#create the excel file 
+
+write_xlsx(data, "province_month_data.xlsx")
+
+```
+
+
+
+
+
+
+
